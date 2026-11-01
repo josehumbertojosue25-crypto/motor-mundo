@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Motor Mundo</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;touch-action:none;font-family:system-ui,sans-serif;color:#fff;user-select:none;-webkit-user-select:none}
+  canvas{display:block}
+  #hud{position:fixed;top:8px;left:8px;font-size:13px;line-height:1.4;text-shadow:0 1px 3px #000;pointer-events:none}
+  .stick{position:fixed;bottom:28px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.3)}
+  .stick i{position:absolute;left:41px;top:41px;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.5)}
+  #moveStick{left:24px} #lookStick{right:24px}
+  #btnE{position:fixed;right:30px;bottom:180px;width:76px;height:76px;border-radius:50%;border:2px solid #fff6;background:#0007;color:#fff;font-size:15px}
+</style>
+</head>
+<body>
+<div id="hud"></div>
+<div class="stick" id="moveStick"><i></i></div>
+<div class="stick" id="lookStick"><i></i></div>
+<button id="btnE">Entrar</button>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
