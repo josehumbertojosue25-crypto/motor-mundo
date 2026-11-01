@@ -1,4 +1,4 @@
-name: Compilar Motor Mundo
+name: Compilar Motor Mundo APK
 
 on:
   push:
@@ -7,53 +7,46 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: build
-  cancel-in-progress: true
 
 jobs:
-  web:
-    name: Versão web (GitHub Pages)
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install
-      - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-      - id: deploy
-        uses: actions/deploy-pages@v4
-
   apk:
-    name: APK Android (Capacitor)
+    name: APK Android
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-      - uses: actions/setup-java@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
-      - run: npm install
-      - run: npm run build
-      - run: npx cap add android
-      - run: npx cap sync android
-      - name: Compilar APK debug
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Construir jogo
+        run: npm run build
+
+      - name: Preparar Android
+        run: npx cap add android
+
+      - name: Sincronizar Capacitor
+        run: npx cap sync android
+
+      - name: Compilar APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
-      - uses: actions/upload-artifact@v4
+
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
         with:
           name: motor-mundo-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
