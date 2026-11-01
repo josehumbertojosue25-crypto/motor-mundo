@@ -14,16 +14,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Baixar código
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Configurar Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
@@ -34,17 +31,20 @@ jobs:
       - name: Construir jogo
         run: npm run build
 
-      - name: Preparar Android
+      - name: Criar plataforma Android
         run: npx cap add android
 
-      - name: Sincronizar Capacitor
+      - name: Gerar ícones do MOTOR-MUNDO
+        run: npx capacitor-assets generate --android
+
+      - name: Sincronizar Android
         run: npx cap sync android
 
       - name: Compilar APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Disponibilizar APK
+      - name: Guardar APK
         uses: actions/upload-artifact@v4
         with:
           name: motor-mundo-apk
