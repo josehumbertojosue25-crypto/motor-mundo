@@ -644,6 +644,53 @@ function collide(pos, radius) {
 
 /* ---------- JOGADOR ---------- */
 const player = { pos: new THREE.Vector3(45, 0, 76), yaw: 0, pitch: 0, driving: false };
+
+// Modos: a pé = terceira/primeira pessoa; carro = traseira/capô.
+let cameraMode = 'third';
+
+// Modelo simples do jogador para a câmara em terceira pessoa.
+const avatar = new THREE.Group();
+const avatarBodyMat = new THREE.MeshLambertMaterial({ color: 0x2468a8 });
+const avatarSkinMat = new THREE.MeshLambertMaterial({ color: 0xc58b62 });
+const avatarLegMat = new THREE.MeshLambertMaterial({ color: 0x202b3b });
+
+function avatarPart(geometry, material, x, y, z) {
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  avatar.add(mesh);
+  return mesh;
+}
+
+avatarPart(new THREE.BoxGeometry(0.62, 0.85, 0.34), avatarBodyMat, 0, 1.15, 0);
+avatarPart(new THREE.SphereGeometry(0.23, 10, 8), avatarSkinMat, 0, 1.82, 0);
+
+const avatarArms = [];
+for (const x of [-0.39, 0.39]) {
+  const pivot = new THREE.Group();
+  pivot.position.set(x, 1.48, 0);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.65, 0.2), avatarBodyMat);
+  arm.position.y = -0.31;
+  pivot.add(arm);
+  avatar.add(pivot);
+  avatarArms.push(pivot);
+}
+
+const avatarLegs = [];
+for (const x of [-0.19, 0.19]) {
+  const pivot = new THREE.Group();
+  pivot.position.set(x, 0.76, 0);
+  const leg = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.72, 0.25), avatarLegMat);
+  leg.position.y = -0.34;
+  pivot.add(leg);
+  avatar.add(pivot);
+  avatarLegs.push(pivot);
+}
+
+scene.add(avatar);
+avatar.visible = true;
+let avatarWalkTime = 0;
+
 let nearShop = false;
 let nearPlace = null;
 let shopOpen = false;
@@ -661,9 +708,32 @@ function walk(dt) {
   player.pos.x += (-s * fwd + c * str) * sp * dt;
   player.pos.z += (-c * fwd - s * str) * sp * dt;
   collide(player.pos, 0.5);
-  camera.position.set(player.pos.x, 1.7, player.pos.z);
-  camera.rotation.set(player.pitch, player.yaw, 0);
-  state.energy = clamp(state.energy - 0.1 * dt * (Math.hypot(m.x, m.y) > 0.1 ? 1.4 : 0.6), 0, 100);
+
+  const moving = Math.hypot(m.x, m.y) > 0.12;
+  avatar.position.copy(player.pos);
+  avatar.rotation.y = player.yaw;
+  avatar.visible = cameraMode === 'third';
+
+  if (moving) avatarWalkTime += dt * (keys.ShiftLeft ? 13 : 9);
+  const swing = moving ? Math.sin(avatarWalkTime) * 0.48 : 0;
+  avatarLegs[0].rotation.x = swing;
+  avatarLegs[1].rotation.x = -swing;
+  avatarArms[0].rotation.x = -swing * 0.65;
+  avatarArms[1].rotation.x = swing * 0.65;
+
+  if (cameraMode === 'third') {
+    const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+    const target = player.pos.clone()
+      .addScaledVector(forward, -5.2)
+      .add(new THREE.Vector3(0, 2.8, 0));
+    camera.position.lerp(target, 1 - Math.pow(0.001, dt));
+    camera.lookAt(player.pos.x, 1.15, player.pos.z);
+  } else {
+    camera.position.set(player.pos.x, 1.7, player.pos.z);
+    camera.rotation.set(player.pitch, player.yaw, 0);
+  }
+
+  state.energy = clamp(state.energy - 0.1 * dt * (moving ? 1.4 : 0.6), 0, 100);
 }
 
 /* ---------- CARRO ---------- */
@@ -732,11 +802,19 @@ function drive(dt) {
   checkSignals();
   checkParking();
 
-  // câmara 3ª pessoa
-  const f = new THREE.Vector3(-Math.sin(car.heading), 0, -Math.cos(car.heading));
-  const target = car.pos.clone().addScaledVector(f, -9).add(new THREE.Vector3(0, 4.5, 0));
-  camera.position.lerp(target, 1 - Math.pow(0.001, dt));
-  camera.lookAt(car.pos.x, 1.6, car.pos.z);
+  // Câmara traseira ou dianteira (capô).
+  avatar.visible = false;
+  if (cameraMode === 'hood') {
+    const hoodPosition = car.mesh.localToWorld(new THREE.Vector3(0, 2.0, -1.15));
+    const hoodTarget = car.mesh.localToWorld(new THREE.Vector3(0, 1.0, -12));
+    camera.position.lerp(hoodPosition, 1 - Math.pow(0.001, dt));
+    camera.lookAt(hoodTarget);
+  } else {
+    const f = new THREE.Vector3(-Math.sin(car.heading), 0, -Math.cos(car.heading));
+    const target = car.pos.clone().addScaledVector(f, -9).add(new THREE.Vector3(0, 4.5, 0));
+    camera.position.lerp(target, 1 - Math.pow(0.001, dt));
+    camera.lookAt(car.pos.x, 1.6, car.pos.z);
+  }
   player.pos.copy(car.pos);
 }
 function syncCar() { car.mesh.position.copy(car.pos); car.mesh.rotation.y = car.heading; }
@@ -1305,7 +1383,8 @@ css3.textContent = `
 .foot{margin-top:16px;font-size:11px;opacity:.5;letter-spacing:.08em}
 .msg{font-size:15px;line-height:1.45;margin:6px 0 12px;opacity:.92}
 #pauseBtn{position:fixed;top:8px;right:8px;width:42px;height:42px;border-radius:10px;border:1px solid #fff4;background:#0008;color:#fff;font-size:20px;z-index:6}
-body.inmenu #hud,body.inmenu .stick,body.inmenu #btnE,body.inmenu #btnShop,body.inmenu #minimap,body.inmenu #pauseBtn,body.inmenu #toast,body.inmenu #shop{display:none!important}
+#cameraBtn{position:fixed;top:58px;right:8px;min-width:92px;height:38px;padding:0 9px;border-radius:10px;border:1px solid #fff5;background:#0009;color:#fff;font-size:12px;font-weight:700;z-index:6}
+body.inmenu #hud,body.inmenu .stick,body.inmenu #btnE,body.inmenu #btnShop,body.inmenu #minimap,body.inmenu #pauseBtn,body.inmenu #cameraBtn,body.inmenu #toast,body.inmenu #shop{display:none!important}
 `;
 document.head.appendChild(css3);
 const menuEl = document.createElement('div'); menuEl.id = 'menu';
@@ -1313,6 +1392,24 @@ const menuBox = document.createElement('div'); menuBox.id = 'menuBox';
 menuEl.appendChild(menuBox); document.body.appendChild(menuEl);
 const pauseBtn = document.createElement('button'); pauseBtn.id = 'pauseBtn'; pauseBtn.textContent = '☰';
 document.body.appendChild(pauseBtn);
+
+const cameraBtn = document.createElement('button');
+cameraBtn.id = 'cameraBtn';
+cameraBtn.textContent = 'CÂMARA';
+cameraBtn.title = 'Mudar perspetiva da câmara';
+document.body.appendChild(cameraBtn);
+
+cameraBtn.addEventListener('click', () => {
+  if (menuMode || shopOpen) return;
+  if (player.driving) {
+    cameraMode = cameraMode === 'hood' ? 'chase' : 'hood';
+  } else {
+    cameraMode = cameraMode === 'third' ? 'first' : 'third';
+  }
+  toast(player.driving
+    ? (cameraMode === 'hood' ? 'Câmara dianteira' : 'Câmara traseira')
+    : (cameraMode === 'third' ? 'Terceira pessoa' : 'Primeira pessoa'));
+});
 
 let menuMode = null;        // 'title' | 'pause' | null (a jogar)
 let menuView = 'main';
@@ -1487,6 +1584,11 @@ function frame() {
   const nearCar = !player.driving && player.pos.distanceTo(car.pos) < 7;
   btnE.textContent = player.driving ? 'Sair' : 'Entrar';
   btnE.style.opacity = (player.driving || nearCar) ? 1 : 0.35;
+
+  cameraBtn.style.display = (!menuMode && !shopOpen) ? 'block' : 'none';
+  cameraBtn.textContent = player.driving
+    ? (cameraMode === 'hood' ? 'CÂMARA: CAPÔ' : 'CÂMARA: TRÁS')
+    : (cameraMode === 'first' ? 'CÂMARA: 1ª' : 'CÂMARA: 3ª');
 
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 0.5) { fps = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; }
