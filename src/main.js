@@ -754,22 +754,49 @@ scene.add(avatar);
 avatar.visible = true;
 let avatarWalkTime = 0;
 
-// Modelo 3D e animações do jogador.
-let avatarMixer = null;
-let avatarActions = {};
-let avatarCurrentAction = null;
+// Modelo 3D e animação procedural do jogador.
+const avatarBones = {};
+const avatarBoneRest = {};
+let avatarMoveAmount = 0;
+let avatarRunning = false;
+let avatarWalkTime = 0;
 
-function setAvatarAnimation(name) {
-  if (!avatarMixer) return;
+function animateAvatar(dt) {
+  if (!avatarBones.Hips) return;
 
-  const next = avatarActions[name];
-  if (!next || next === avatarCurrentAction) return;
+  avatarWalkTime += dt * (avatarRunning ? 13 : 9);
 
-  next.reset();
-  next.fadeIn(0.2);
-  if (avatarCurrentAction) avatarCurrentAction.fadeOut(0.2);
-  next.play();
-  avatarCurrentAction = next;
+  const swing = Math.sin(avatarWalkTime) * 0.48 * avatarMoveAmount;
+  const armSwing = swing * 0.7;
+
+  function rotateBone(name, angle) {
+    const bone = avatarBones[name];
+    const rest = avatarBoneRest[name];
+    if (!bone || !rest) return;
+
+    const offset = new THREE.Quaternion()
+      .setFromAxisAngle(new THREE.Vector3(1, 0, 0), angle);
+
+    bone.quaternion.copy(rest).multiply(offset);
+  }
+
+  rotateBone('LeftUpLeg', swing);
+  rotateBone('RightUpLeg', -swing);
+  rotateBone('LeftLeg', Math.max(0, -swing) * 0.65);
+  rotateBone('RightLeg', Math.max(0, swing) * 0.65);
+
+  rotateBone('LeftArm', -armSwing);
+  rotateBone('RightArm', armSwing);
+  rotateBone('LeftForeArm', -Math.max(0, armSwing) * 0.35);
+  rotateBone('RightForeArm', -Math.max(0, -armSwing) * 0.35);
+
+  const hips = avatarBones.Hips;
+  const restPosition = avatarBoneRest.HipsPosition;
+
+  if (hips && restPosition) {
+    hips.position.y = restPosition.y +
+      Math.abs(Math.sin(avatarWalkTime * 2)) * 0.045 * avatarMoveAmount;
+  }
 }
 
 new GLTFLoader().load(
@@ -777,7 +804,6 @@ new GLTFLoader().load(
   (gltf) => {
     const model = gltf.scene;
 
-    // Ajusta o personagem para aproximadamente 1,8 metros.
     model.updateMatrixWorld(true);
     const bounds = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3();
@@ -798,24 +824,37 @@ new GLTFLoader().load(
         obj.castShadow = true;
         obj.receiveShadow = true;
       }
+
+      if (obj.isBone) {
+        const name = obj.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        const boneNames = {
+          hips: 'Hips',
+          leftupleg: 'LeftUpLeg',
+          rightupleg: 'RightUpLeg',
+          leftleg: 'LeftLeg',
+          rightleg: 'RightLeg',
+          leftarm: 'LeftArm',
+          rightarm: 'RightArm',
+          leftforearm: 'LeftForeArm',
+          rightforearm: 'RightForeArm'
+        };
+
+        const key = boneNames[name];
+        if (key) {
+          avatarBones[key] = obj;
+          avatarBoneRest[key] = obj.quaternion.clone();
+          if (key === 'Hips') {
+            avatarBoneRest.HipsPosition = obj.position.clone();
+          }
+        }
+      }
     });
 
-    // Substitui o boneco provisório pelo modelo Gangster.
     avatar.clear();
     avatar.add(model);
 
-    avatarMixer = new THREE.AnimationMixer(model);
-
-    for (const clip of gltf.animations) {
-      const n = clip.name.toLowerCase();
-
-      if (n.includes('idle')) avatarActions.idle = avatarMixer.clipAction(clip);
-      else if (n.includes('walk')) avatarActions.walk = avatarMixer.clipAction(clip);
-      else if (n.includes('run')) avatarActions.run = avatarMixer.clipAction(clip);
-    }
-
-    setAvatarAnimation('idle');
-    console.log('Gangster carregado. Animações:', Object.keys(avatarActions));
+    console.log('Gangster carregado. Ossos encontrados:', Object.keys(avatarBones));
   },
   undefined,
   (error) => {
@@ -843,20 +882,13 @@ function walk(dt) {
 
   const moving = Math.hypot(m.x, m.y) > 0.12;
 
-  setAvatarAnimation(
-    moving ? (keys.ShiftLeft ? 'run' : 'walk') : 'idle'
-  );
+  avatarMoveAmount = moving ? 1 : 0;
+  avatarRunning = !!keys.ShiftLeft;
 
   avatar.position.copy(player.pos);
   avatar.rotation.y = player.yaw;
   avatar.visible = cameraMode === 'third';
 
-  if (moving) avatarWalkTime += dt * (keys.ShiftLeft ? 13 : 9);
-  const swing = moving ? Math.sin(avatarWalkTime) * 0.48 : 0;
-  avatarLegs[0].rotation.x = swing;
-  avatarLegs[1].rotation.x = -swing;
-  avatarArms[0].rotation.x = -swing * 0.65;
-  avatarArms[1].rotation.x = swing * 0.65;
 
   if (cameraMode === 'third') {
     const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
@@ -1704,7 +1736,7 @@ function frame() {
   sigT += dt;
   if (menuMode === 'title') orbitCamera(dt);
   else if (player.driving) drive(dt); else walk(dt);
-  if (avatarMixer) avatarMixer.update(dt);
+  if (!player.driving) animateAvatar(dt);
   updateChunks(player.pos.x, player.pos.z, 1);
   updateNpcs(dt);
   if (menuMode !== 'title') updateJob(dt);
