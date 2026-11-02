@@ -759,7 +759,7 @@ const avatarBones = {};
 const avatarBoneRest = {};
 let avatarMoveAmount = 0;
 let avatarRunning = false;
-let avatarWalkTime = 0;
+
 
 function animateAvatar(dt) {
   if (!avatarBones.Hips) return;
