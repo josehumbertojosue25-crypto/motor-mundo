@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 /* ============================================================
    MOTOR MUNDO v0.4
@@ -373,7 +374,7 @@ function buildPark(b, boxes, r, x0, x1, z0, z1) {
   for (const [lx, lz] of [[cx + 5, cz + 1.9], [cx - 5, cz - 1.9], [cx + 1.9, cz - 5], [cx - 1.9, cz + 5]]) parkLamp(b, lx, lz);
 }
 
-function buildLot(b, boxes, lots, r, qx, x0, x1, z0, z1) {
+function buildLot(b, boxes, lots, parkedModels, r, qx, x0, x1, z0, z1) {
   const lx0 = x0 + 1.5, lx1 = x1 - 1.5, lz0 = z0 + 1.5, lz1 = z1 - 1.5;
   b.flat(lotMat, lx1 - lx0, lz1 - lz0, (lx0 + lx1) / 2, 0.05, (lz0 + lz1) / 2);
   const n = Math.floor((lx1 - lx0 - 2) / 3.2);
@@ -384,7 +385,10 @@ function buildLot(b, boxes, lots, r, qx, x0, x1, z0, z1) {
     for (let i = 0; i < n; i++) {
       const x = sx + i * 3.2 + 1.6;
       const occ = r() < 0.5;
-      if (occ) parkedCar(b, boxes, x, rz, r);
+      if (occ) {
+        parkedModels.push({ x, z: rz });
+        boxes.push({ minx: x - 1, maxx: x + 1, minz: rz - 2.1, maxz: rz + 2.1 });
+      }
       slots.push({ x, z: rz, occ, last: -999 });
     }
   }
@@ -498,7 +502,65 @@ function buildPlot(b, boxes, homes, cx, cz, qx, qz, x0, x1, z0, z1) {
 }
 
 /* ---------- CHUNKS ---------- */
-const chunks = new Map(); // "cx,cz" -> { group, boxes, shops, lots }
+const chunks = new Map(); // blocos carregados
+let parkedCarModel = null;
+
+function addParkedModels(group, positions) {
+  if (!parkedCarModel || !positions) return;
+
+  for (const pos of positions) {
+    const car = parkedCarModel.clone(true);
+
+    // Geometrias independentes: podem ser libertadas ao remover o bloco.
+    car.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.geometry = obj.geometry.clone();
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+      }
+    });
+
+    const initialBounds = new THREE.Box3().setFromObject(car);
+    const initialSize = initialBounds.getSize(new THREE.Vector3());
+
+    // Coloca o maior comprimento do veículo na direção do estacionamento.
+    if (initialSize.x > initialSize.z) {
+      car.rotation.y = Math.PI / 2;
+    }
+
+    const scale = Math.min(
+      4.2 / Math.max(initialSize.x, initialSize.z, 0.001),
+      1.8 / Math.max(initialSize.y, 0.001)
+    );
+
+    car.scale.setScalar(scale);
+
+    const bounds = new THREE.Box3().setFromObject(car);
+    const center = bounds.getCenter(new THREE.Vector3());
+
+    car.position.set(
+      pos.x - center.x,
+      -bounds.min.y + 0.06,
+      pos.z - center.z
+    );
+
+    group.add(car);
+  }
+}
+
+// Carrega o modelo uma única vez e atualiza os blocos já existentes.
+new GLTFLoader().load(
+  '/models/covered_car.glb',
+  (gltf) => {
+    parkedCarModel = gltf.scene;
+    for (const chunk of chunks.values()) {
+      addParkedModels(chunk.group, chunk.parkedModels);
+    }
+    console.log('Modelo dos carros estacionados carregado.');
+  },
+  undefined,
+  (error) => console.error('Erro ao carregar covered_car.glb:', error)
+);
 
 function quadType(cx, cz, qx, qz, r) {
   if (cx === 0 && cz === 0) {
@@ -520,7 +582,7 @@ function quadType(cx, cz, qx, qz, r) {
 
 function buildChunk(cx, cz) {
   const b = new Builder();
-  const boxes = [], shops = [], lots = [], jobs = [], homes = [];
+  const boxes = [], shops = [], lots = [], jobs = [], homes = [], parkedModels = [];
   const r = rng(hash(cx, cz));
   const ox = cx * CHUNK, oz = cz * CHUNK, mx = ox + CHUNK / 2, mz = oz + CHUNK / 2;
 
@@ -566,7 +628,7 @@ function buildChunk(cx, cz) {
     const z0 = qz ? mz + OFF : oz + 2, z1 = qz ? oz + CHUNK - 2 : mz - OFF;
     const type = quadType(cx, cz, qx, qz, r);
     if (type === 'park') buildPark(b, boxes, r, x0, x1, z0, z1);
-    else if (type === 'lot') buildLot(b, boxes, lots, r, qx, x0, x1, z0, z1);
+    else if (type === 'lot') buildLot(b, boxes, lots, parkedModels, r, qx, x0, x1, z0, z1);
     else if (type === 'shop') buildShop(b, boxes, shops, qx, x0, x1, z0, z1);
     else if (type === 'jobs') buildJobs(b, boxes, jobs, qx, x0, x1, z0, z1);
     else if (type === 'plot') buildPlot(b, boxes, homes, cx, cz, qx, qz, x0, x1, z0, z1);
@@ -575,8 +637,9 @@ function buildChunk(cx, cz) {
 
   const group = new THREE.Group();
   b.finish(group);
+  addParkedModels(group, parkedModels);
   scene.add(group);
-  return { group, boxes, shops, lots, jobs, homes };
+  return { group, boxes, shops, lots, jobs, homes, parkedModels };
 }
 
 function updateChunks(px, pz, max = 1) {
@@ -691,6 +754,75 @@ scene.add(avatar);
 avatar.visible = true;
 let avatarWalkTime = 0;
 
+// Modelo 3D e animações do jogador.
+let avatarMixer = null;
+let avatarActions = {};
+let avatarCurrentAction = null;
+
+function setAvatarAnimation(name) {
+  if (!avatarMixer) return;
+
+  const next = avatarActions[name];
+  if (!next || next === avatarCurrentAction) return;
+
+  next.reset();
+  next.fadeIn(0.2);
+  if (avatarCurrentAction) avatarCurrentAction.fadeOut(0.2);
+  next.play();
+  avatarCurrentAction = next;
+}
+
+new GLTFLoader().load(
+  '/models/player/The_Gangster.glb',
+  (gltf) => {
+    const model = gltf.scene;
+
+    // Ajusta o personagem para aproximadamente 1,8 metros.
+    model.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    bounds.getSize(size);
+    bounds.getCenter(center);
+
+    const scale = 1.8 / Math.max(size.y, 0.001);
+    model.scale.setScalar(scale);
+    model.position.set(
+      -center.x * scale,
+      -bounds.min.y * scale,
+      -center.z * scale
+    );
+
+    model.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+      }
+    });
+
+    // Substitui o boneco provisório pelo modelo Gangster.
+    avatar.clear();
+    avatar.add(model);
+
+    avatarMixer = new THREE.AnimationMixer(model);
+
+    for (const clip of gltf.animations) {
+      const n = clip.name.toLowerCase();
+
+      if (n.includes('idle')) avatarActions.idle = avatarMixer.clipAction(clip);
+      else if (n.includes('walk')) avatarActions.walk = avatarMixer.clipAction(clip);
+      else if (n.includes('run')) avatarActions.run = avatarMixer.clipAction(clip);
+    }
+
+    setAvatarAnimation('idle');
+    console.log('Gangster carregado. Animações:', Object.keys(avatarActions));
+  },
+  undefined,
+  (error) => {
+    console.error('Erro ao carregar o Gangster:', error);
+  }
+);
+
 let nearShop = false;
 let nearPlace = null;
 let shopOpen = false;
@@ -710,6 +842,11 @@ function walk(dt) {
   collide(player.pos, 0.5);
 
   const moving = Math.hypot(m.x, m.y) > 0.12;
+
+  setAvatarAnimation(
+    moving ? (keys.ShiftLeft ? 'run' : 'walk') : 'idle'
+  );
+
   avatar.position.copy(player.pos);
   avatar.rotation.y = player.yaw;
   avatar.visible = cameraMode === 'third';
@@ -1567,6 +1704,7 @@ function frame() {
   sigT += dt;
   if (menuMode === 'title') orbitCamera(dt);
   else if (player.driving) drive(dt); else walk(dt);
+  if (avatarMixer) avatarMixer.update(dt);
   updateChunks(player.pos.x, player.pos.z, 1);
   updateNpcs(dt);
   if (menuMode !== 'title') updateJob(dt);
