@@ -136,8 +136,8 @@ renderer.domElement.addEventListener('pointerdown', (e) => { if (e.pointerType =
 addEventListener('pointerup', () => { mouseLook = null; });
 addEventListener('pointermove', (e) => {
   if (!mouseLook || e.pointerType !== 'mouse') return;
-  player.yaw -= (e.clientX - mouseLook.x) * 0.004;
-  player.pitch = clamp(player.pitch - (e.clientY - mouseLook.y) * 0.004, -1.2, 1.2);
+  cameraYaw -= (e.clientX - mouseLook.x) * 0.004;
+  cameraPitch = clamp(cameraPitch + (e.clientY - mouseLook.y) * 0.004, -0.65, 0.85);
   mouseLook = { x: e.clientX, y: e.clientY };
 });
 btnE.addEventListener('click', toggleCar);
@@ -707,6 +707,8 @@ function collide(pos, radius) {
 
 /* ---------- JOGADOR ---------- */
 const player = { pos: new THREE.Vector3(45, 0, 76), yaw: 0, pitch: 0, driving: false };
+let cameraYaw = 0;
+let cameraPitch = 0;
 
 // Modos: a pé = terceira/primeira pessoa; carro = traseira/capô.
 let cameraMode = 'third';
@@ -868,38 +870,60 @@ let shopOpen = false;
 
 function walk(dt) {
   const m = readMove();
+
   if (!shopOpen) {
-    player.yaw -= lookStick.x * 2.2 * dt;
-    player.pitch = clamp(player.pitch - lookStick.y * 1.5 * dt, -1.2, 1.2);
+    cameraYaw -= lookStick.x * 2.2 * dt;
+    cameraPitch = clamp(cameraPitch + lookStick.y * 1.5 * dt, -0.65, 0.85);
   }
-  const s = Math.sin(player.yaw), c = Math.cos(player.yaw);
-  const fwd = -m.y, str = m.x;
+
+  const fwd = -m.y;
+  const str = m.x;
+  const sinY = Math.sin(cameraYaw);
+  const cosY = Math.cos(cameraYaw);
+
   let sp = keys.ShiftLeft ? 9 : 5.5;
   if (state.energy <= 0) sp *= 0.5;
-  player.pos.x += (-s * fwd + c * str) * sp * dt;
-  player.pos.z += (-c * fwd - s * str) * sp * dt;
+
+  player.pos.x += (-sinY * fwd + cosY * str) * sp * dt;
+  player.pos.z += (-cosY * fwd - sinY * str) * sp * dt;
   collide(player.pos, 0.5);
 
   const moving = Math.hypot(m.x, m.y) > 0.12;
-
   avatarMoveAmount = moving ? 1 : 0;
   avatarRunning = !!keys.ShiftLeft;
+
+  if (fwd > 0.12) {
+    const difference = Math.atan2(
+      Math.sin(cameraYaw - player.yaw),
+      Math.cos(cameraYaw - player.yaw)
+    );
+    player.yaw += difference * (1 - Math.exp(-8 * dt));
+  }
 
   avatar.position.copy(player.pos);
   avatar.rotation.y = player.yaw;
   avatar.visible = cameraMode === 'third';
 
-
   if (cameraMode === 'third') {
-    const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-    const target = player.pos.clone()
-      .addScaledVector(forward, -5.2)
-      .add(new THREE.Vector3(0, 2.8, 0));
-    camera.position.lerp(target, 1 - Math.pow(0.001, dt));
-    camera.lookAt(player.pos.x, 1.15, player.pos.z);
+    const target = player.pos.clone().add(new THREE.Vector3(0, 1.35, 0));
+    const distance = 5.2;
+    const horizontal = Math.cos(cameraPitch) * distance;
+
+    const cameraPosition = target.clone().add(new THREE.Vector3(
+      Math.sin(cameraYaw) * horizontal,
+      Math.sin(cameraPitch) * distance,
+      Math.cos(cameraYaw) * horizontal
+    ));
+
+    camera.position.lerp(cameraPosition, 1 - Math.pow(0.001, dt));
+    camera.lookAt(target);
   } else {
     camera.position.set(player.pos.x, 1.7, player.pos.z);
-    camera.rotation.set(player.pitch, player.yaw, 0);
+    camera.lookAt(
+      player.pos.x - Math.sin(cameraYaw) * Math.cos(cameraPitch),
+      1.7 - Math.sin(cameraPitch),
+      player.pos.z - Math.cos(cameraYaw) * Math.cos(cameraPitch)
+    );
   }
 
   state.energy = clamp(state.energy - 0.1 * dt * (moving ? 1.4 : 0.6), 0, 100);
@@ -936,6 +960,7 @@ let fuelWarn = 0;
 car.mesh.traverse((o) => { o.castShadow = true; });
 if (state.pos && [state.pos.x, state.pos.z, state.pos.cx, state.pos.cz].every(Number.isFinite)) {
   player.pos.set(state.pos.x, 0, state.pos.z); player.yaw = state.pos.yaw || 0;
+  cameraYaw = player.yaw; cameraPitch = 0;
   car.pos.set(state.pos.cx, 0, state.pos.cz); car.heading = state.pos.ch || 0;
   player.driving = !!state.pos.drv;
 }
@@ -1613,6 +1638,7 @@ function newGame() {
   job = null; beacon.visible = false; cookT = -1e9;
   closeShop();
   player.pos.set(45, 0, 76); player.yaw = 0; player.pitch = 0; player.driving = false;
+  cameraYaw = 0; cameraPitch = 0;
   car.pos.set(50, 0, 88); car.heading = 0; car.speed = 0; syncCar();
   for (const k of [...chunks.keys()]) { const [cx, cz] = k.split(',').map(Number); rebuildChunk(cx, cz); }
   save();
