@@ -868,57 +868,90 @@ let nearShop = false;
 let nearPlace = null;
 let shopOpen = false;
 
+
 function walk(dt) {
   const m = readMove();
 
+  // Controlo independente da câmara.
   if (!shopOpen) {
     cameraYaw -= lookStick.x * 2.2 * dt;
-    cameraPitch = clamp(cameraPitch + lookStick.y * 1.5 * dt, -0.65, 0.85);
+    cameraPitch = clamp(
+      cameraPitch + lookStick.y * 1.5 * dt,
+      -0.65,
+      0.85
+    );
   }
 
-  const fwd = -m.y;
-  const str = m.x;
+  const forward = -m.y;
+  const strafe = m.x;
+
   const sinY = Math.sin(cameraYaw);
   const cosY = Math.cos(cameraYaw);
+
+  // Movimento relativo à direção da câmara.
+  const moveX = -sinY * forward + cosY * strafe;
+  const moveZ = -cosY * forward - sinY * strafe;
 
   let sp = keys.ShiftLeft ? 9 : 5.5;
   if (state.energy <= 0) sp *= 0.5;
 
-  player.pos.x += (-sinY * fwd + cosY * str) * sp * dt;
-  player.pos.z += (-cosY * fwd - sinY * str) * sp * dt;
+  player.pos.x += moveX * sp * dt;
+  player.pos.z += moveZ * sp * dt;
+
   collide(player.pos, 0.5);
 
-  const moving = Math.hypot(m.x, m.y) > 0.12;
+  const moving = Math.hypot(moveX, moveZ) > 0.12;
+
   avatarMoveAmount = moving ? 1 : 0;
   avatarRunning = !!keys.ShiftLeft;
 
-  if (fwd > 0.12) {
+  // O personagem olha sempre para onde está a caminhar.
+  if (moving) {
+    const targetYaw = Math.atan2(-moveX, -moveZ);
+
     const difference = Math.atan2(
-      Math.sin(cameraYaw - player.yaw),
-      Math.cos(cameraYaw - player.yaw)
+      Math.sin(targetYaw - player.yaw),
+      Math.cos(targetYaw - player.yaw)
     );
-    player.yaw += difference * (1 - Math.exp(-8 * dt));
+
+    player.yaw += difference * (1 - Math.exp(-10 * dt));
   }
 
+  // Atualização do modelo.
   avatar.position.copy(player.pos);
   avatar.rotation.y = player.yaw;
   avatar.visible = cameraMode === 'third';
 
+  // Câmara em terceira pessoa.
   if (cameraMode === 'third') {
-    const target = player.pos.clone().add(new THREE.Vector3(0, 1.35, 0));
+    const target = player.pos.clone().add(
+      new THREE.Vector3(0, 1.35, 0)
+    );
+
     const distance = 5.2;
     const horizontal = Math.cos(cameraPitch) * distance;
 
-    const cameraPosition = target.clone().add(new THREE.Vector3(
-      Math.sin(cameraYaw) * horizontal,
-      Math.sin(cameraPitch) * distance,
-      Math.cos(cameraYaw) * horizontal
-    ));
+    const cameraPosition = target.clone().add(
+      new THREE.Vector3(
+        Math.sin(cameraYaw) * horizontal,
+        Math.sin(cameraPitch) * distance,
+        Math.cos(cameraYaw) * horizontal
+      )
+    );
 
-    camera.position.lerp(cameraPosition, 1 - Math.pow(0.001, dt));
+    const smooth = 1 - Math.exp(-10 * dt);
+
+    camera.position.lerp(cameraPosition, smooth);
     camera.lookAt(target);
+
   } else {
-    camera.position.set(player.pos.x, 1.7, player.pos.z);
+    // Primeira pessoa.
+    camera.position.set(
+      player.pos.x,
+      1.7,
+      player.pos.z
+    );
+
     camera.lookAt(
       player.pos.x - Math.sin(cameraYaw) * Math.cos(cameraPitch),
       1.7 - Math.sin(cameraPitch),
@@ -926,7 +959,11 @@ function walk(dt) {
     );
   }
 
-  state.energy = clamp(state.energy - 0.1 * dt * (moving ? 1.4 : 0.6), 0, 100);
+  state.energy = clamp(
+    state.energy - 0.1 * dt * (moving ? 1.4 : 0.6),
+    0,
+    100
+  );
 }
 
 /* ---------- CARRO ---------- */
