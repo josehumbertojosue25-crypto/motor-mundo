@@ -70,8 +70,11 @@ css.textContent = `
 #hud{white-space:pre;font-size:13px;line-height:1.45}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#000b;color:#fff;padding:8px 14px;border-radius:10px;font-size:14px;max-width:70vw;text-align:center;pointer-events:none;opacity:0;transition:opacity .25s;z-index:5}
 #minimap{position:fixed;top:8px;left:50%;transform:translateX(-50%);width:120px;height:120px;border-radius:8px;border:1px solid #fff4;pointer-events:none}
-.abtn{position:fixed;right:30px;width:76px;height:76px;border-radius:50%;border:2px solid #fff6;background:#0007;color:#fff;font-size:14px}
+.abtn{position:fixed;right:30px;width:76px;height:76px;border-radius:50%;border:2px solid #fff6;background:#0007;color:#fff;font-size:14px;touch-action:none;user-select:none}
 #btnShop{bottom:268px;display:none;background:#b8860b99}
+#btnAttack{bottom:360px;background:#a52a2acc;border-color:#ffaaaa;font-weight:bold}
+#btnRun{bottom:450px;background:#176b9dcc;border-color:#aaddff;font-weight:bold}
+#btnRun.active{background:#168b42}
 #shop{position:fixed;inset:0;margin:auto;width:min(86vw,420px);height:fit-content;max-height:86vh;overflow:auto;background:#10151ce8;border:1px solid #fff3;border-radius:14px;padding:14px 16px;display:none;z-index:10;color:#fff}
 #shop h2{margin:0 0 4px;font-size:20px} #shop p{margin:0 0 10px;opacity:.85}
 #shop button{display:block;width:100%;margin:6px 0;padding:11px;border-radius:9px;border:1px solid #fff3;background:#1e2a3a;color:#fff;font-size:15px;text-align:left}
@@ -84,6 +87,18 @@ const hud = document.getElementById('hud');
 const btnE = document.getElementById('btnE');
 const toastEl = document.createElement('div'); toastEl.id = 'toast'; document.body.appendChild(toastEl);
 const btnShop = document.createElement('button'); btnShop.id = 'btnShop'; btnShop.className = 'abtn'; btnShop.textContent = 'Loja'; document.body.appendChild(btnShop);
+
+const btnAttack = document.createElement('button');
+btnAttack.id = 'btnAttack';
+btnAttack.className = 'abtn';
+btnAttack.textContent = 'SOCO';
+document.body.appendChild(btnAttack);
+
+const btnRun = document.createElement('button');
+btnRun.id = 'btnRun';
+btnRun.className = 'abtn';
+btnRun.textContent = 'CORRER';
+document.body.appendChild(btnRun);
 const shopEl = document.createElement('div'); shopEl.id = 'shop'; document.body.appendChild(shopEl);
 const mm = document.createElement('canvas'); mm.id = 'minimap'; mm.width = mm.height = 120; document.body.appendChild(mm);
 const mctx = mm.getContext('2d');
@@ -142,6 +157,28 @@ addEventListener('pointermove', (e) => {
 });
 btnE.addEventListener('click', toggleCar);
 btnShop.addEventListener('click', () => (shopOpen ? closeShop() : openShop()));
+
+btnAttack.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  startAttack();
+});
+
+btnRun.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  runHeld = true;
+  btnRun.classList.add('active');
+});
+
+function stopRunning() {
+  runHeld = false;
+  btnRun.classList.remove('active');
+}
+
+addEventListener('pointerup', stopRunning);
+addEventListener('pointercancel', stopRunning);
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyJ' && !e.repeat) startAttack();
+});
 
 function readMove() {
   if (shopOpen) return { x: 0, y: 0 };
@@ -761,43 +798,83 @@ const avatarBones = {};
 const avatarBoneRest = {};
 let avatarMoveAmount = 0;
 let avatarRunning = false;
+let runHeld = false;
+let attackTime = 0;
+let attackCooldown = 0;
+const ATTACK_DURATION = 0.48;
+
+function startAttack() {
+  if (player.driving || shopOpen || menuMode || attackCooldown > 0) return;
+  attackTime = ATTACK_DURATION;
+  attackCooldown = 0.58;
+}
 
 
 function animateAvatar(dt) {
-  if (!avatarBones.Hips) return;
+  if (!Object.keys(avatarBones).length) return;
 
-  avatarWalkTime += dt * (avatarRunning ? 13 : 9);
+  attackCooldown = Math.max(0, attackCooldown - dt);
+  attackTime = Math.max(0, attackTime - dt);
 
-  const swing = Math.sin(avatarWalkTime) * 0.48 * avatarMoveAmount;
-  const armSwing = swing * 0.7;
+  const running = avatarRunning;
+  const speed = running ? 15.5 : 9.5;
+  avatarWalkTime += dt * speed;
 
-  function rotateBone(name, angle) {
+  const intensity = avatarMoveAmount;
+  const phase = Math.sin(avatarWalkTime);
+
+  const legSwing = phase * (running ? 0.78 : 0.58) * intensity;
+  const armSwing = phase * (running ? 0.62 : 0.48) * intensity;
+
+  // O soco estende o braço e depois recolhe naturalmente.
+  let punch = 0;
+  if (attackTime > 0) {
+    const progress = 1 - attackTime / ATTACK_DURATION;
+    if (progress < 0.38) {
+      const t = progress / 0.38;
+      punch = t * t * (3 - 2 * t);
+    } else {
+      const t = (progress - 0.38) / 0.62;
+      punch = 1 - t * t * (3 - 2 * t);
+    }
+  }
+
+  function rotateBone(name, x = 0, y = 0, z = 0) {
     const bone = avatarBones[name];
     const rest = avatarBoneRest[name];
     if (!bone || !rest) return;
 
     const offset = new THREE.Quaternion()
-      .setFromAxisAngle(new THREE.Vector3(1, 0, 0), angle);
+      .setFromEuler(new THREE.Euler(x, y, z, 'XYZ'));
 
     bone.quaternion.copy(rest).multiply(offset);
   }
 
-  rotateBone('LeftUpLeg', swing);
-  rotateBone('RightUpLeg', -swing);
-  rotateBone('LeftLeg', Math.max(0, -swing) * 0.65);
-  rotateBone('RightLeg', Math.max(0, swing) * 0.65);
+  // Pernas: passadas alternadas.
+  rotateBone('LeftUpLeg', legSwing);
+  rotateBone('RightUpLeg', -legSwing);
 
-  rotateBone('LeftArm', -armSwing);
-  rotateBone('RightArm', armSwing);
-  rotateBone('LeftForeArm', -Math.max(0, armSwing) * 0.35);
-  rotateBone('RightForeArm', -Math.max(0, -armSwing) * 0.35);
+  rotateBone('LeftLeg', Math.max(0, -legSwing) * 0.8);
+  rotateBone('RightLeg', Math.max(0, legSwing) * 0.8);
+
+  // Braços: balanço contrário às pernas.
+  rotateBone('LeftArm', -armSwing - punch * 0.25);
+  rotateBone('RightArm', armSwing - punch * 1.25, punch * 0.12);
+
+  rotateBone('LeftForeArm', -Math.max(0, armSwing) * 0.4);
+  rotateBone('RightForeArm', -Math.max(0, -armSwing) * 0.4 - punch * 0.95);
+
+  // Pequena inclinação do tronco durante a corrida e o soco.
+  rotateBone('Hips', -intensity * (running ? 0.10 : 0.035) - punch * 0.12,
+    punch * 0.20);
 
   const hips = avatarBones.Hips;
   const restPosition = avatarBoneRest.HipsPosition;
 
   if (hips && restPosition) {
-    hips.position.y = restPosition.y +
-      Math.abs(Math.sin(avatarWalkTime * 2)) * 0.045 * avatarMoveAmount;
+    const bob = Math.abs(Math.sin(avatarWalkTime * 2)) *
+      (running ? 0.075 : 0.045) * intensity;
+    hips.position.y = restPosition.y + bob;
   }
 }
 
@@ -842,7 +919,9 @@ new GLTFLoader().load(
           rightforearm: 'RightForeArm'
         };
 
-        const key = boneNames[name];
+        const match = Object.entries(boneNames)
+          .find(([alias]) => name === alias || name.endsWith(alias));
+        const key = match ? match[1] : null;
         if (key) {
           avatarBones[key] = obj;
           avatarBoneRest[key] = obj.quaternion.clone();
@@ -896,7 +975,7 @@ function walk(dt) {
   const moveX = -sinY * forward + cosY * strafe;
   const moveZ = -cosY * forward - sinY * strafe;
 
-  let sp = keys.ShiftLeft ? 9 : 5.5;
+  let sp = (keys.ShiftLeft || runHeld) ? 9 : 5.5;
   if (state.energy <= 0) sp *= 0.5;
 
   player.pos.x += moveX * sp * dt;
@@ -907,7 +986,7 @@ function walk(dt) {
   const moving = Math.hypot(moveX, moveZ) > 0.12;
 
   avatarMoveAmount = moving ? 1 : 0;
-  avatarRunning = !!keys.ShiftLeft;
+  avatarRunning = !!keys.ShiftLeft || runHeld;
 
   // O personagem olha sempre para onde está a caminhar.
   if (moving) {
@@ -1619,7 +1698,7 @@ css3.textContent = `
 .msg{font-size:15px;line-height:1.45;margin:6px 0 12px;opacity:.92}
 #pauseBtn{position:fixed;top:8px;right:8px;width:42px;height:42px;border-radius:10px;border:1px solid #fff4;background:#0008;color:#fff;font-size:20px;z-index:6}
 #cameraBtn{position:fixed;top:58px;right:8px;min-width:92px;height:38px;padding:0 9px;border-radius:10px;border:1px solid #fff5;background:#0009;color:#fff;font-size:12px;font-weight:700;z-index:6}
-body.inmenu #hud,body.inmenu .stick,body.inmenu #btnE,body.inmenu #btnShop,body.inmenu #minimap,body.inmenu #pauseBtn,body.inmenu #cameraBtn,body.inmenu #toast,body.inmenu #shop{display:none!important}
+body.inmenu #hud,body.inmenu .stick,body.inmenu #btnE,body.inmenu #btnShop,body.inmenu #btnAttack,body.inmenu #btnRun,body.inmenu #minimap,body.inmenu #pauseBtn,body.inmenu #cameraBtn,body.inmenu #toast,body.inmenu #shop{display:none!important}
 `;
 document.head.appendChild(css3);
 const menuEl = document.createElement('div'); menuEl.id = 'menu';
