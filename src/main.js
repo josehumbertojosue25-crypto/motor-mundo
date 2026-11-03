@@ -854,6 +854,10 @@ new GLTFLoader().load(
     });
 
     avatar.clear();
+
+    // Corrige a orientação frontal do modelo 3D.
+    model.rotation.y = Math.PI;
+
     avatar.add(model);
 
     console.log('Gangster carregado. Ossos encontrados:', Object.keys(avatarBones));
