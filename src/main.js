@@ -12,7 +12,22 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
    ============================================================ */
 
 const CHUNK = 100;
+const WORLD_SIZE = 2000;
+const WORLD_HALF = WORLD_SIZE / 2;
+const MIN_CHUNK = -10;
+const MAX_CHUNK = 9;
 let RADIUS = 2;
+
+function keepInsideWorld(pos, margin = 1) {
+  const limit = WORLD_HALF - margin;
+  const oldX = pos.x;
+  const oldZ = pos.z;
+
+  pos.x = clamp(pos.x, -limit, limit);
+  pos.z = clamp(pos.z, -limit, limit);
+
+  return oldX !== pos.x || oldZ !== pos.z;
+}
 const ROAD = 12;
 const OFF = ROAD / 2 + 2;       // distância da linha central da estrada ao primeiro edifício
 const DAY_SECONDS = 300;
@@ -680,22 +695,45 @@ function buildChunk(cx, cz) {
 }
 
 function updateChunks(px, pz, max = 1) {
-  const ccx = Math.floor(px / CHUNK), ccz = Math.floor(pz / CHUNK);
+  const ccx = Math.floor(px / CHUNK);
+  const ccz = Math.floor(pz / CHUNK);
+
   for (let n = 0; n < max; n++) {
-    let best = null, bd = 1e9;
-    for (let dx = -RADIUS; dx <= RADIUS; dx++) for (let dz = -RADIUS; dz <= RADIUS; dz++) {
-      if (chunks.has(`${ccx + dx},${ccz + dz}`)) continue;
-      const d = dx * dx + dz * dz;
-      if (d < bd) { bd = d; best = [ccx + dx, ccz + dz]; }
+    let best = null;
+    let bd = 1e9;
+
+    for (let dx = -RADIUS; dx <= RADIUS; dx++) {
+      for (let dz = -RADIUS; dz <= RADIUS; dz++) {
+        const x = ccx + dx;
+        const z = ccz + dz;
+
+        if (x < MIN_CHUNK || x > MAX_CHUNK ||
+            z < MIN_CHUNK || z > MAX_CHUNK) continue;
+
+        if (chunks.has(`${x},${z}`)) continue;
+
+        const d = dx * dx + dz * dz;
+        if (d < bd) {
+          bd = d;
+          best = [x, z];
+        }
+      }
     }
+
     if (!best) break;
-    chunks.set(`${best[0]},${best[1]}`, buildChunk(best[0], best[1]));
+    chunks.set(`${best[0]},${best[1]}`,
+      buildChunk(best[0], best[1]));
   }
+
   for (const [k, c] of chunks) {
     const [x, z] = k.split(',').map(Number);
-    if (Math.abs(x - ccx) > RADIUS + 1 || Math.abs(z - ccz) > RADIUS + 1) {
+
+    if (Math.abs(x - ccx) > RADIUS + 1 ||
+        Math.abs(z - ccz) > RADIUS + 1) {
       scene.remove(c.group);
-      c.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+      c.group.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+      });
       chunks.delete(k);
     }
   }
@@ -982,6 +1020,7 @@ function walk(dt) {
   player.pos.z += moveZ * sp * dt;
 
   collide(player.pos, 0.5);
+  keepInsideWorld(player.pos, 1);
 
   const moving = Math.hypot(moveX, moveZ) > 0.12;
 
@@ -1082,6 +1121,8 @@ if (state.pos && [state.pos.x, state.pos.z, state.pos.cx, state.pos.cz].every(Nu
   player.pos.set(state.pos.x, 0, state.pos.z); player.yaw = state.pos.yaw || 0;
   cameraYaw = player.yaw; cameraPitch = 0;
   car.pos.set(state.pos.cx, 0, state.pos.cz); car.heading = state.pos.ch || 0;
+  keepInsideWorld(player.pos, 1);
+  keepInsideWorld(car.pos, 4);
   player.driving = !!state.pos.drv;
 }
 
@@ -1102,6 +1143,7 @@ function drive(dt) {
   car.pos.x += -Math.sin(car.heading) * car.speed * dt;
   car.pos.z += -Math.cos(car.heading) * car.speed * dt;
   if (collide(car.pos, 2.1)) car.speed *= 0.4;
+  if (keepInsideWorld(car.pos, 4)) car.speed = 0;
   syncCar();
 
   // luz de travão
