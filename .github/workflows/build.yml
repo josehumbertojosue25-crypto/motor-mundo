@@ -40,6 +40,38 @@ jobs:
       - name: Sincronizar Android
         run: npx cap sync android
 
+      - name: Configurar jogo em modo horizontal
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+
+          pattern = r'<activity\\b(?=[^>]*android:name="[^"]*MainActivity")[^>]*>'
+          matches = list(re.finditer(pattern, s, re.S))
+
+          if len(matches) != 1:
+              raise SystemExit("MainActivity não encontrada de forma única.")
+
+          tag = matches[0].group(0)
+
+          if 'android:screenOrientation=' in tag:
+              tag = re.sub(
+                  r'android:screenOrientation="[^"]*"',
+                  'android:screenOrientation="landscape"',
+                  tag
+              )
+          else:
+              tag = tag[:-1] + ' android:screenOrientation="landscape">'
+
+          s = s[:matches[0].start()] + tag + s[matches[0].end():]
+          p.write_text(s)
+
+          print("Orientação horizontal configurada.")
+          PYTHON
+
       - name: Compilar APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
