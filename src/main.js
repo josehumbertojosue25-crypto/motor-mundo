@@ -265,7 +265,25 @@ const [winMap, winEmit] = makeWindowTextures();
 /* ---------- MATERIAIS PARTILHADOS ---------- */
 const L = (c) => new THREE.MeshLambertMaterial({ color: c });
 const grassMat = L(0x4a7c3a), parkGrassMat = L(0x63a84c), roadMat = L(0x2b2b2e);
-const lineMat = L(0xd8c24a), whiteMat = L(0xe6e6e6), sideMat = L(0x9b9a94);
+const lineMat = L(0xd8c24a), whiteMat = L(0xe6e6e6);
+
+// Textura PBR dos passeios
+const pavingLoader = new THREE.TextureLoader();
+const pavingColor = pavingLoader.load('/assets/textures/paving138/color.png');
+const pavingRoughness = pavingLoader.load('/assets/textures/paving138/roughness.png');
+
+for (const tex of [pavingColor, pavingRoughness]) {
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(8, 1);
+}
+pavingColor.colorSpace = THREE.SRGBColorSpace;
+
+const sideMat = new THREE.MeshStandardMaterial({
+  map: pavingColor,
+  roughnessMap: pavingRoughness,
+  roughness: 1
+});
 const gravelMat = L(0xcdbf9a), lotMat = L(0x3a3a3e);
 const trunkMat = L(0x5b3a1e), crownMat = L(0x2f6b2f), crownMat2 = L(0x3c8a3c);
 const poleMat = L(0x555a60), darkMat = L(0x1b1d20), stoneMat = L(0x9a9a9a), waterMat = L(0x3a86c8), benchMat = L(0x7a5230);
