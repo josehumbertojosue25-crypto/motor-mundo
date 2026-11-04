@@ -43,12 +43,12 @@ jobs:
           p = Path("android/build.gradle")
           s = p.read_text()
 
-          pattern = r"(?m)^([ \\t]*)mavenCentral\\(\\)[ \\t]*$"
+          pattern = r"(?m)^([ \t]*)mavenCentral\(\)[ \t]*$"
 
           def add_repo(match):
               indent = match.group(1)
               return (
-                  indent + "maven { url 'https://repo1.maven.org/maven2' }\\n"
+                  indent + "maven { url 'https://repo1.maven.org/maven2' }\n"
                   + indent + "mavenCentral()"
               )
 
