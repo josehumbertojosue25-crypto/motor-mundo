@@ -614,6 +614,84 @@ new GLTFLoader().load(
   (error) => console.error('Erro ao carregar covered_car.glb:', error)
 );
 
+function worldZone(cx, cz) {
+  const ring = Math.max(Math.abs(cx), Math.abs(cz));
+
+  if (ring >= 8) return 'mountain';
+  if (ring >= 6) return 'rural';
+  if (ring >= 3) return 'residential';
+
+  return 'city';
+}
+
+function buildRural(b, boxes, r, x0, x1, z0, z1) {
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+
+  // Campo agrícola
+  b.flat(gravelMat, x1 - x0, z1 - z0, cx, 0.04, cz);
+
+  // Linhas de cultivo
+  for (let i = 0; i < 5; i++) {
+    const z = z0 + 5 + i * 6;
+    b.box(crownMat2, x1 - x0 - 8, 0.5, 0.8,
+      cx, 0.3, z);
+  }
+
+  // Árvores nas margens
+  for (let i = 0; i < 3; i++) {
+    const tx = x0 + 5 + r() * (x1 - x0 - 10);
+    const tz = z0 + 5 + r() * (z1 - z0 - 10);
+    tree(b, tx, tz);
+  }
+
+  // Pequena casa rural ocasional
+  if (r() < 0.35) {
+    const hx = x1 - 8;
+    const hz = z1 - 8;
+
+    b.wbox(houseWallMat(0xc7a47a), 6, 4.5, 6, hx, hz);
+    b.box(roofMat, 7, 0.7, 7, hx, 4.8, hz);
+
+    boxes.push({
+      minx: hx - 3.5,
+      maxx: hx + 3.5,
+      minz: hz - 3.5,
+      maxz: hz + 3.5
+    });
+  }
+}
+
+function buildMountain(b, boxes, r, x0, x1, z0, z1) {
+  const count = 1 + Math.floor(r() * 2);
+
+  for (let i = 0; i < count; i++) {
+    const radius = 7 + r() * 6;
+    const height = 22 + r() * 28;
+
+    const hx = x0 + radius + 2 +
+      r() * Math.max(1, x1 - x0 - radius * 2 - 4);
+
+    const hz = z0 + radius + 2 +
+      r() * Math.max(1, z1 - z0 - radius * 2 - 4);
+
+    // Corpo da montanha
+    b.cone(stoneMat, radius, height,
+      hx, height / 2, hz, 8);
+
+    // Rocha no topo
+    b.cone(gravelMat, radius * 0.35, height * 0.45,
+      hx, height * 0.72, hz, 7);
+
+    boxes.push({
+      minx: hx - radius * 0.55,
+      maxx: hx + radius * 0.55,
+      minz: hz - radius * 0.55,
+      maxz: hz + radius * 0.55
+    });
+  }
+}
+
 function quadType(cx, cz, qx, qz, r) {
   if (cx === 0 && cz === 0) {
     if (qx === 0 && qz === 1) return 'shop';
@@ -622,13 +700,31 @@ function quadType(cx, cz, qx, qz, r) {
     if (qx === 0 && qz === 0) return 'jobs';
     return 'city';
   }
+
   if (cx === 0 && cz === 1 && qz === 0) return 'plot';
+
+  const zone = worldZone(cx, cz);
+
+  if (zone === 'mountain') return 'mountain';
+
+  if (zone === 'rural') {
+    return r() < 0.82 ? 'rural' : 'park';
+  }
+
+  if (zone === 'residential') {
+    const v = r();
+    if (v < 0.14) return 'park';
+    if (v < 0.34) return 'plot';
+    return 'city';
+  }
+
   const v = r();
   if (v < 0.10) return 'park';
   if (v < 0.19) return 'lot';
   if (v < 0.24) return 'shop';
   if (v < 0.28) return 'jobs';
   if (v < 0.40) return 'plot';
+
   return 'city';
 }
 
@@ -679,12 +775,46 @@ function buildChunk(cx, cz) {
     const x0 = qx ? mx + OFF : ox + 2, x1 = qx ? ox + CHUNK - 2 : mx - OFF;
     const z0 = qz ? mz + OFF : oz + 2, z1 = qz ? oz + CHUNK - 2 : mz - OFF;
     const type = quadType(cx, cz, qx, qz, r);
-    if (type === 'park') buildPark(b, boxes, r, x0, x1, z0, z1);
-    else if (type === 'lot') buildLot(b, boxes, lots, parkedModels, r, qx, x0, x1, z0, z1);
+    if (type === 'mountain') {
+      buildMountain(b, boxes, r, x0, x1, z0, z1);
+    }
+    else if (type === 'rural') {
+      buildRural(b, boxes, r, x0, x1, z0, z1);
+    }
+    else if (type === 'park') {
+      buildPark(b, boxes, r, x0, x1, z0, z1);
+    }
+    else if (type === 'lot') {
+      buildLot(b, boxes, lots, parkedModels, r, qx, x0, x1, z0, z1);
+    }
     else if (type === 'shop') buildShop(b, boxes, shops, qx, x0, x1, z0, z1);
     else if (type === 'jobs') buildJobs(b, boxes, jobs, qx, x0, x1, z0, z1);
     else if (type === 'plot') buildPlot(b, boxes, homes, cx, cz, qx, qz, x0, x1, z0, z1);
     else buildCity(b, boxes, r, x0, x1, z0, z1);
+  }
+
+  // Fronteiras visuais do mundo
+  const wallHeight = 26;
+  const wallThickness = 5;
+
+  if (cx === MIN_CHUNK) {
+    b.box(stoneMat, wallThickness, wallHeight, CHUNK,
+      ox - 2.5, wallHeight / 2, mz);
+  }
+
+  if (cx === MAX_CHUNK) {
+    b.box(stoneMat, wallThickness, wallHeight, CHUNK,
+      ox + CHUNK + 2.5, wallHeight / 2, mz);
+  }
+
+  if (cz === MIN_CHUNK) {
+    b.box(stoneMat, CHUNK, wallHeight, wallThickness,
+      mx, wallHeight / 2, oz - 2.5);
+  }
+
+  if (cz === MAX_CHUNK) {
+    b.box(stoneMat, CHUNK, wallHeight, wallThickness,
+      mx, wallHeight / 2, oz + CHUNK + 2.5);
   }
 
   const group = new THREE.Group();
