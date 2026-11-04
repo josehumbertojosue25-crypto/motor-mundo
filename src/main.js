@@ -524,7 +524,9 @@ function buildPlot(b, boxes, homes, cx, cz, qx, qz, x0, x1, z0, z1) {
   const xf = qx === 0 ? x1 - 9 : x0 + 9;            // fachada da casa
   b.flat(parkGrassMat, x1 - x0, z1 - z0, (x0 + x1) / 2, 0.03, zc);
   b.flat(gravelMat, 9, 2.2, xf + fx * 4.5, 0.05, zc);
-  homes.push({ key, cx, cz, x: xf + fx * 5, z: zc });
+  const homeInfo = { key, cx, cz, x: xf + fx * 5, z: zc, level };
+  homes.push(homeInfo);
+
   if (level === 0) {
     const sx = xf + fx * 7.5;
     b.cyl(poleMat, 0.07, 0.09, 2.6, sx, 1.3, zc + 3, 6);
@@ -532,13 +534,79 @@ function buildPlot(b, boxes, homes, cx, cz, qx, qz, x0, x1, z0, z1) {
     for (const [px, pz] of [[x0 + 1, z0 + 1], [x0 + 1, z1 - 1], [x1 - 1, z0 + 1], [x1 - 1, z1 - 1]]) b.box(fenceMat, 0.3, 1, 0.3, px, 0.5, pz);
     return;
   }
+
   const [w, d] = [[10, 8], [12, 11], [14, 15]][level - 1];
   const h = [4, 5.2, 7.2][level - 1];
   const rh = [2.8, 3, 2.4][level - 1];
   const xc = xf - fx * w / 2;
   const wall = houseWallMat(own.color || 0xd9c7a0);
-  b.box(wall, w, h, d, xc, h / 2, zc);
-  boxes.push({ minx: xc - w / 2, maxx: xc + w / 2, minz: zc - d / 2, maxz: zc + d / 2 });
+
+  // Posições dos objetos e da área interior.
+  const bedX = xc - fx * 2;
+  const bedZ = zc - 1.6;
+  const stoveX = xc + fx * 2;
+  const stoveZ = zc + 1.6;
+
+  Object.assign(homeInfo, {
+    level, bedX, bedZ, stoveX, stoveZ,
+    minInsideX: xc - w / 2 + 0.8,
+    maxInsideX: xc + w / 2 - 0.8,
+    minInsideZ: zc - d / 2 + 0.8,
+    maxInsideZ: zc + d / 2 - 0.8
+  });
+
+  // Chão interior.
+  b.flat(stoneMat, w - 0.8, d - 0.8, xc, 0.06, zc);
+
+  // Paredes separadas: a fachada fica com uma abertura de entrada.
+  const t = 0.4;
+  const doorGap = 2.4;
+  const backX = xc - fx * (w / 2 - t / 2);
+  const frontX = xf - fx * t / 2;
+  const sideZ1 = zc - d / 2 + t / 2;
+  const sideZ2 = zc + d / 2 - t / 2;
+  const segment = (d - doorGap) / 2;
+
+  // Parede traseira.
+  b.box(wall, t, h, d, backX, h / 2, zc);
+  boxes.push({
+    minx: backX - t / 2, maxx: backX + t / 2,
+    minz: zc - d / 2, maxz: zc + d / 2
+  });
+
+  // Paredes laterais.
+  b.box(wall, w, h, t, xc, h / 2, sideZ1);
+  b.box(wall, w, h, t, xc, h / 2, sideZ2);
+
+  boxes.push({
+    minx: xc - w / 2, maxx: xc + w / 2,
+    minz: sideZ1 - t / 2, maxz: sideZ1 + t / 2
+  });
+  boxes.push({
+    minx: xc - w / 2, maxx: xc + w / 2,
+    minz: sideZ2 - t / 2, maxz: sideZ2 + t / 2
+  });
+
+  // Dois segmentos frontais deixam a porta livre.
+  for (const sign of [-1, 1]) {
+    const segmentZ = zc + sign * (doorGap / 2 + segment / 2);
+    b.box(wall, t, h, segment, frontX, h / 2, segmentZ);
+    boxes.push({
+      minx: frontX - t / 2, maxx: frontX + t / 2,
+      minz: segmentZ - segment / 2, maxz: segmentZ + segment / 2
+    });
+  }
+
+  // Cama: base, colchão e almofada.
+  b.box(roofMat, 2.2, 0.4, 1.5, bedX, 0.35, bedZ);
+  b.box(glassMat, 2.05, 0.25, 1.38, bedX, 0.68, bedZ);
+  b.box(wall, 0.55, 0.16, 1.2, bedX - fx * 0.65, 0.86, bedZ);
+
+  // Balcão e fogão.
+  b.box(roofMat, 1.5, 0.8, 1.0, stoveX, 0.45, stoveZ);
+  b.box(stoneMat, 1.45, 0.12, 0.95, stoveX, 0.91, stoveZ);
+  b.box(doorMat, 0.38, 0.12, 0.38, stoveX - 0.3, 1.02, stoveZ - 0.2);
+  b.box(doorMat, 0.38, 0.12, 0.38, stoveX + 0.3, 1.02, stoveZ + 0.2);
   // telhado em pirâmide
   const rg = new THREE.ConeGeometry(1, rh, 4);
   rg.rotateY(Math.PI / 4); rg.scale(w * 0.792, 1, d * 0.792); rg.translate(xc, h + rh / 2, zc);
@@ -1365,7 +1433,24 @@ function toggleCar() {
 }
 
 /* ---------- LOJA ---------- */
-function openShop() { menuPlace = nearPlace; shopOpen = true; renderMenu(); shopEl.style.display = 'block'; }
+function openShop() {
+  if (!nearPlace) return;
+
+  if (nearPlace.kind === 'bed') {
+    sleepNow();
+    return;
+  }
+
+  if (nearPlace.kind === 'stove') {
+    cookNow(nearPlace.level);
+    return;
+  }
+
+  menuPlace = nearPlace;
+  shopOpen = true;
+  renderMenu();
+  shopEl.style.display = 'block';
+}
 function closeShop() { shopOpen = false; shopEl.style.display = 'none'; }
 function buy(price, fn) {
   if (state.money < price) { toast('Moedas insuficientes'); return; }
@@ -1408,12 +1493,31 @@ function findNearPlace() {
   for (const c of nearbyChunks(player.pos)) {
     for (const s of c.shops) test(s.x, s.z, 5, { kind: 'shop', x: s.x, z: s.z });
     for (const j of c.jobs) test(j.x, j.z, 6, { kind: 'jobs', x: j.x, z: j.z });
-    for (const h of c.homes) test(h.x, h.z, 8, { kind: 'home', key: h.key, cx: h.cx, cz: h.cz, x: h.x, z: h.z });
+    for (const h of c.homes) {
+      test(h.x, h.z, 8, {
+        kind: 'home', key: h.key, cx: h.cx, cz: h.cz,
+        x: h.x, z: h.z
+      });
+
+      if (h.level > 0) {
+        test(h.bedX, h.bedZ, 2.3, {
+          kind: 'bed', key: h.key, level: h.level,
+          cx: h.cx, cz: h.cz, x: h.bedX, z: h.bedZ
+        });
+
+        test(h.stoveX, h.stoveZ, 2.3, {
+          kind: 'stove', key: h.key, level: h.level,
+          cx: h.cx, cz: h.cz, x: h.stoveX, z: h.stoveZ
+        });
+      }
+    }
   }
 }
 function placeLabel(p) {
   if (!p || p.kind === 'shop') return 'Loja';
   if (p.kind === 'jobs') return 'Emprego';
+  if (p.kind === 'bed') return 'Dormir';
+  if (p.kind === 'stove') return 'Cozinhar';
   return state.houses[p.key] ? 'Casa' : 'Comprar';
 }
 function renderMenu() {
@@ -1560,8 +1664,11 @@ function sleepNow() {
 function cookNow(lv) {
   const now = performance.now();
   if (now - cookT < 90000) { toast('🍳 A comida ainda está a ser preparada... espera um pouco.'); return; }
-  cookT = now; state.energy = Math.min(100, state.energy + (lv === 3 ? 50 : 30));
-  toast('🍳 Comeste em casa. Energia recuperada!'); renderMenu();
+  cookT = now;
+  state.energy = Math.min(100, state.energy + (lv === 3 ? 50 : 30));
+  save();
+  toast('🍳 Preparaste comida em casa. Energia recuperada!');
+  if (shopOpen) renderMenu();
 }
 function renderHome(p) {
   const own = state.houses[p.key], lv = own ? own.level : 0;
