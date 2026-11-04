@@ -40,54 +40,12 @@ jobs:
       - name: Sincronizar Android
         run: npx cap sync android
 
-      - name: Configurar jogo em modo horizontal
+      - name: Diagnosticar manifesto Android
         run: |
-          python3 - <<'PYTHON'
-          from pathlib import Path
-          import re
-
-          p = Path("android/app/src/main/AndroidManifest.xml")
-          s = p.read_text()
-
-          activities = list(re.finditer(
-              r'<activity\\b[^>]*>.*?</activity>',
-              s,
-              re.S
-          ))
-
-          targets = []
-
-          for match in activities:
-              block = match.group(0)
-              if "android.intent.action.MAIN" in block and "android.intent.category.LAUNCHER" in block:
-                  targets.append(match)
-
-          if len(targets) != 1:
-              raise SystemExit(
-                  f"Esperada uma atividade principal, encontradas: {len(targets)}"
-              )
-
-          match = targets[0]
-          block = match.group(0)
-
-          if re.search(r'android:screenOrientation="[^"]*"', block):
-              block = re.sub(
-                  r'android:screenOrientation="[^"]*"',
-                  'android:screenOrientation="landscape"',
-                  block
-              )
-          else:
-              block = block.replace(
-                  "<activity",
-                  '<activity android:screenOrientation="landscape"',
-                  1
-              )
-
-          s = s[:match.start()] + block + s[match.end():]
-          p.write_text(s)
-
-          print("Modo horizontal configurado com sucesso.")
-          PYTHON
+          echo "===== ANDROID MANIFEST ====="
+          cat android/app/src/main/AndroidManifest.xml
+          echo "===== FICHEIROS MAINACTIVITY ====="
+          find android/app/src/main -iname '*MainActivity*' -type f -print
 
       - name: Compilar APK
         working-directory: android
