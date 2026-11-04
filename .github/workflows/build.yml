@@ -40,12 +40,41 @@ jobs:
       - name: Sincronizar Android
         run: npx cap sync android
 
-      - name: Diagnosticar manifesto Android
+      - name: Configurar jogo em modo horizontal
         run: |
-          echo "===== ANDROID MANIFEST ====="
-          cat android/app/src/main/AndroidManifest.xml
-          echo "===== FICHEIROS MAINACTIVITY ====="
-          find android/app/src/main -iname '*MainActivity*' -type f -print
+          python3 - <<'PYTHON'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          android = "http://schemas.android.com/apk/res/android"
+
+          ET.register_namespace("android", android)
+
+          tree = ET.parse(p)
+          root = tree.getroot()
+
+          activities = root.findall(".//activity")
+
+          matches = [
+              activity for activity in activities
+              if activity.get(f"{{{android}}}name", "").endswith("MainActivity")
+          ]
+
+          if len(matches) != 1:
+              raise SystemExit(
+                  f"Esperada uma MainActivity, encontradas: {len(matches)}"
+              )
+
+          matches[0].set(
+              f"{{{android}}}screenOrientation",
+              "landscape"
+          )
+
+          tree.write(p, encoding="utf-8", xml_declaration=True)
+
+          print("SUCESSO: Motor Mundo configurado em Landscape.")
+          PYTHON
 
       - name: Compilar APK
         working-directory: android
