@@ -361,6 +361,12 @@ class Builder {
 
 /* ---------- OBJETOS DO MUNDO ---------- */
 function tree(b, x, z) {
+  if (b.importedTreePositions) {
+    b.importedTreePositions.push({ x, z });
+    if (!importedTreeModelsFailed) return;
+  }
+
+  // Árvores procedurais de segurança, caso os modelos GLB falhem.
   b.cyl(trunkMat, 0.25, 0.35, 2.4, x, 1.2, z, 6);
   b.cone(crownMat, 1.9, 4.2, x, 4.2, z);
   b.cone(crownMat2, 1.4, 3.2, x, 6.0, z);
@@ -643,6 +649,11 @@ function buildPlot(b, boxes, homes, cx, cz, qx, qz, x0, x1, z0, z1) {
 const chunks = new Map(); // blocos carregados
 let parkedCarModel = null;
 
+let importedPalmTreeModel = null;
+let importedDeadTreeModel = null;
+let importedTreeModelsReady = false;
+let importedTreeModelsFailed = false;
+
 function addParkedModels(group, positions) {
   if (!parkedCarModel || !positions) return;
 
@@ -698,6 +709,99 @@ new GLTFLoader().load(
   },
   undefined,
   (error) => console.error('Erro ao carregar covered_car.glb:', error)
+);
+
+function addImportedTrees(group, positions) {
+  if (!importedTreeModelsReady || importedTreeModelsFailed || !positions) return;
+
+  for (const pos of positions) {
+    const usePalm = Math.abs(hash(Math.floor(pos.x), Math.floor(pos.z))) % 2 === 0;
+    const source = usePalm ? importedPalmTreeModel : importedDeadTreeModel;
+
+    if (!source) continue;
+
+    const model = source.clone(true);
+
+    // Cada bloco recebe geometrias próprias para permitir descarregamento.
+    model.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.geometry = obj.geometry.clone();
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+      }
+    });
+
+    model.rotation.y = Math.random() * Math.PI * 2;
+    model.updateMatrixWorld(true);
+
+    const bounds = new THREE.Box3().setFromObject(model);
+    const height = bounds.max.y - bounds.min.y;
+
+    if (height > 0.001) {
+      const targetHeight = usePalm ? 10 : 7;
+      model.scale.multiplyScalar(targetHeight / height);
+      model.updateMatrixWorld(true);
+
+      const adjustedBounds = new THREE.Box3().setFromObject(model);
+      model.position.y -= adjustedBounds.min.y;
+    }
+
+    model.position.x = pos.x;
+    model.position.z = pos.z;
+    group.add(model);
+  }
+}
+
+function fallbackImportedTrees(error) {
+  if (importedTreeModelsFailed) return;
+
+  importedTreeModelsFailed = true;
+  importedTreeModelsReady = false;
+
+  console.error("Erro ao carregar árvores 3D. A usar árvores procedurais:", error);
+
+  // Reconstrói os blocos que já tinham sido criados.
+  for (const key of [...chunks.keys()]) {
+    const [cx, cz] = key.split(",").map(Number);
+    rebuildChunk(cx, cz);
+  }
+}
+
+// Carrega os dois modelos uma única vez.
+const importedTreeLoader = new GLTFLoader();
+
+importedTreeLoader.load(
+  "/models/imported/palm_tree.glb",
+  (gltf) => {
+    importedPalmTreeModel = gltf.scene;
+
+    if (importedDeadTreeModel && !importedTreeModelsFailed) {
+      importedTreeModelsReady = true;
+      for (const chunk of chunks.values()) {
+        addImportedTrees(chunk.group, chunk.treePositions);
+      }
+      console.log("Modelos 3D das árvores carregados.");
+    }
+  },
+  undefined,
+  fallbackImportedTrees
+);
+
+importedTreeLoader.load(
+  "/models/imported/dead_tree.glb",
+  (gltf) => {
+    importedDeadTreeModel = gltf.scene;
+
+    if (importedPalmTreeModel && !importedTreeModelsFailed) {
+      importedTreeModelsReady = true;
+      for (const chunk of chunks.values()) {
+        addImportedTrees(chunk.group, chunk.treePositions);
+      }
+      console.log("Modelos 3D das árvores carregados.");
+    }
+  },
+  undefined,
+  fallbackImportedTrees
 );
 
 function worldZone(cx, cz) {
@@ -817,6 +921,8 @@ function quadType(cx, cz, qx, qz, r) {
 function buildChunk(cx, cz) {
   const b = new Builder();
   const boxes = [], shops = [], lots = [], jobs = [], homes = [], parkedModels = [];
+  const treePositions = [];
+  b.importedTreePositions = treePositions;
   const r = rng(hash(cx, cz));
   const ox = cx * CHUNK, oz = cz * CHUNK, mx = ox + CHUNK / 2, mz = oz + CHUNK / 2;
 
@@ -906,8 +1012,9 @@ function buildChunk(cx, cz) {
   const group = new THREE.Group();
   b.finish(group);
   addParkedModels(group, parkedModels);
+  addImportedTrees(group, treePositions);
   scene.add(group);
-  return { group, boxes, shops, lots, jobs, homes, parkedModels };
+  return { group, boxes, shops, lots, jobs, homes, parkedModels, treePositions };
 }
 
 function updateChunks(px, pz, max = 1) {
