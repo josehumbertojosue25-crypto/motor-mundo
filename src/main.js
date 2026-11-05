@@ -2013,7 +2013,7 @@ function sfxVol() { return settings.audioOn ? clamp(settings.volume, 0, 1) : 0; 
 
 const QUALITY = {
   low: { name: 'Baixo', pr: 1, radius: 1, fogN: 30, fogF: 115, shadows: false, hint: 'Mais fps: resolução e vista reduzidas.' },
-  medium: { name: 'Médio', pr: 1.25, radius: 2, fogN: 60, fogF: 215, shadows: false, hint: 'Equilíbrio entre fps e beleza.' },
+  medium: { name: 'Médio', pr: 1.1, radius: 1, fogN: 45, fogF: 175, shadows: false, hint: 'Perfil equilibrado para TECNO Camon 17: boa imagem e desempenho estável.' },
   ultra: { name: 'Ultra', pr: 2, radius: 3, fogN: 90, fogF: 320, shadows: true, hint: 'Sombras, vista longa e resolução máxima. Pede um telemóvel forte.' },
 };
 sun.shadow.mapSize.set(1024, 1024);
