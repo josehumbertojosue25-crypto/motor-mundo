@@ -1336,7 +1336,7 @@ function walk(dt) {
   const moveX = -sinY * forward + cosY * strafe;
   const moveZ = -cosY * forward - sinY * strafe;
 
-  let sp = (keys.ShiftLeft || runHeld) ? 9 : 5.5;
+  let sp = (keys.ShiftLeft || runHeld) ? 7.5 : 4.2;
   if (state.energy <= 0) sp *= 0.5;
 
   player.pos.x += moveX * sp * dt;
@@ -1458,11 +1458,37 @@ function drive(dt) {
     fuelWarn -= dt;
     if (fuelWarn <= 0) { toast('⛽ Sem gasolina! Compra na loja.'); fuelWarn = 6; }
   }
-  car.speed += throttle * (throttle > 0 ? 16 : 22) * dt;
-  car.speed -= car.speed * 0.35 * dt;
-  if (Math.abs(throttle) < 0.05) car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 6 * dt);
-  car.speed = clamp(car.speed, -12, 42);
-  car.heading -= steer * 1.7 * clamp(car.speed / 12, -1, 1) * dt;
+  // Aceleração progressiva e travagem controlada.
+  if (throttle > 0) {
+    if (car.speed < -0.5) {
+      car.speed += Math.min(Math.abs(car.speed), 18 * throttle * dt);
+    } else {
+      car.speed += throttle * 10.5 * dt;
+    }
+  } else if (throttle < 0) {
+    if (car.speed > 0.5) {
+      car.speed -= Math.min(car.speed, 18 * -throttle * dt);
+    } else {
+      car.speed += throttle * 7 * dt;
+    }
+  }
+
+  // Resistência do ar e desaceleração ao largar o acelerador.
+  car.speed -= car.speed * 0.10 * dt;
+  if (Math.abs(throttle) < 0.05) {
+    car.speed -= Math.sign(car.speed) *
+      Math.min(Math.abs(car.speed), 2.2 * dt);
+  }
+
+  // 200 km/h para a frente e 25 km/h em marcha-atrás.
+  car.speed = clamp(car.speed, -6.94, 55.56);
+
+  // A direção fica menos sensível à medida que a velocidade aumenta.
+  const speedFactor =
+    clamp(car.speed / 8, -1, 1) *
+    (1 - 0.45 * clamp(Math.abs(car.speed) / 55.56, 0, 1));
+
+  car.heading -= steer * 1.7 * speedFactor * dt;
   car.pos.x += -Math.sin(car.heading) * car.speed * dt;
   car.pos.z += -Math.cos(car.heading) * car.speed * dt;
   if (collide(car.pos, 2.1)) car.speed *= 0.4;
